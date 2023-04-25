@@ -14,7 +14,7 @@ module functions
    integer(c_int), pointer :: INTERVALT, INTERVALZ
    complex(c_double_complex), pointer :: InitialField(:), OUTB(:, :), OUTCu(:, :)
 
-   complex(c_double_complex), allocatable :: Field(:), A(:), B(:), C(:), D(:), WR(:), &
+   complex(c_double_complex), allocatable :: Field(:), Field_p(:), lField_p(:), rField_p(:), A(:), B(:), C(:), D(:), WR(:), &
                                              OldFNz(:), OldFNzm1(:), OldCuNz(:), OldCuNzm1(:), Cu(:), Cup(:)
    real(c_double), allocatable :: TAxisNew(:), theta(:, :), dthdz(:, :), kpar2(:)
    integer(c_int), allocatable :: IZ(:)
@@ -42,7 +42,7 @@ contains
       DeltaZ = INP%dz
       DeltaT = INP%dt
 
-      allocate (Field(0:Nz), A(0:Nz), B(0:Nz - 1), C(1:Nz), D(0:Nz), WR(0:Nt), &
+      allocate (Field(0:Nz), Field_p(0:Nz), lField_p(0:Nz), rField_p(0:Nz), A(0:Nz), B(0:Nz - 1), C(1:Nz), D(0:Nz), WR(0:Nt), &
                 OldFNz(0:Nt), OldFNzm1(0:Nt), OldCuNz(0:Nt), OldCuNzm1(0:Nt), theta(0:Nz, Ne), dthdz(0:Nz, Ne), &
                 Cu(0:Nz), Cup(0:Nz), IZ(0:OUTNz), kpar2(0:Nz), stat=err_alloc)
       if (err_alloc /= 0) then
@@ -123,9 +123,20 @@ contains
                        + 2*(1 + C0*DeltaZ**2/DeltaT - DeltaZ**2*kpar2(1:Nz - 1)/2)*Field(1:Nz - 1) &
                        - (Field(0:Nz - 2) + Field(2:Nz))
          D(Nz) = -C2*(IR + 1.333333333333333*WR(step)*SQRDT + &
-                      0.666666666666667*DeltaT*(WNzm1*Field(Nz - 1) + WNz*Field(Nz) + WR(step))*exp(CR*DeltaT)/SQRDT)
-         
-                  
+                      0.666666666666667*DeltaT*(WNzm1*Field(Nz - 1) + WNz*Field(Nz) + WR(step))*cdexp(CR*DeltaT)/SQRDT)
+
+         call ltridag(C, A, B, D, lField_p)
+         call ltridag(C, A, B, D, rField_p)
+         Field_p = (lField_p + rField_p)/2.0d0
+         call pendulumODE(theta, dthdz, Field_p, Ne, Nz, DeltaZ)
+
+         open (1, file='test.dat')
+         do i = 0, Nz
+            write (1, '(1p3e17.8)') ZAxis(i), Field_p(i)
+         end do
+         close (1)
+         stop
+
       end do time_loop
 
       return
@@ -146,15 +157,15 @@ contains
 
    end function Current
 
-   subroutine tridag(c, a, b, d, u)
+   subroutine rtridag(c, a, b, d, u)
       use util
 
       implicit none
-      real(c_double), dimension(:), intent(in) :: c, a, b, d
-      real(c_double), dimension(:), intent(out) :: u
-      real(c_double), dimension(size(a)) :: gam
+      complex(c_double_complex), dimension(:), intent(in) :: c, a, b, d
+      complex(c_double_complex), dimension(:), intent(out) :: u
+      complex(c_double_complex), dimension(size(a)) :: gam
       integer(c_int) :: n, j
-      real(c_double) :: bet
+      complex(c_double_complex) :: bet
       n = assert_eq((/size(c) + 1, size(a), size(b) + 1, size(d), size(u)/), 'tridag_ser')
       bet = a(1)
       if (bet == 0.0) call error('tridag_ser: error at code stage 1')
@@ -169,7 +180,32 @@ contains
       do j = n - 1, 1, -1
          u(j) = u(j) - gam(j + 1)*u(j + 1)
       end do
-   end subroutine tridag
+   end subroutine rtridag
+
+   subroutine ltridag(c, a, b, d, u)
+      use util
+
+      implicit none
+      complex(c_double_complex), dimension(:), intent(in) :: c, a, b, d
+      complex(c_double_complex), dimension(:), intent(out) :: u
+      complex(c_double_complex), dimension(size(a)) :: gam
+      integer(c_int) :: n, j
+      complex(c_double_complex) :: bet
+      n = assert_eq((/size(c) + 1, size(a), size(b) + 1, size(d), size(u)/), 'tridag_ser')
+      bet = a(n)
+      if (bet == 0.0) call error('tridag_ser: error at code stage 1')
+      u(n) = d(n)/bet
+      do j = n - 1, 1, -1
+         gam(j) = c(j)/bet
+         bet = a(j) - b(j)*gam(j)
+         if (bet == 0.0) &
+            call error('tridag_ser: error at code stage 2')
+         u(j) = (d(j) - b(j)*u(j + 1))/bet
+      end do
+      do j = 2, n
+         u(j) = u(j) - gam(j - 1)*u(j - 1)
+      end do
+   end subroutine ltridag
 
    subroutine pendulumODE(theta, dthdz, F, Ne, Nz, h)
       implicit none
