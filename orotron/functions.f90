@@ -3,10 +3,11 @@ module functions
    use types
 
    complex(c_double_complex), parameter :: C0 = (0, 1), CR = 0, C2 = 1/cdsqrt(-Im1*pi)
-   real(c_double), parameter :: SQR2 = dsqrt(2.0D0), SQR2M2 = 2.828427124746190, SQR2M2minus25 = SQR2M2 - 2.5, SQR2D2 = 0.707106781186548
+   real(c_double), parameter :: SQR2 = dsqrt(2.0D0), SQR2M2 = 2.828427124746190, SQR2M2minus25 = SQR2M2 - 2.5, &
+                                SQR2D2 = 0.707106781186548, ONEminusSQR2D2 = 1.0d0 - SQR2D2
 
-   complex(c_double_complex) WNz, WNzm1, OldOldSigmaNz, OldOldSigmaNzm1, OldSigmaNz, OldSigmaNzm1
-   real(c_double) :: DeltaZ, DeltaT, SQRDT, SQRDZ, IR, IROldPart
+   complex(c_double_complex) WNz, WNzm1, OldOldSigmaNz, OldOldSigmaNzm1, OldSigmaNz, OldSigmaNzm1, C03DeltaT, C0SQRDZDeltaT,C023DeltaT
+   real(c_double) :: DeltaZ, DeltaT, SQRDT, SQRDZ, IR, IROldPart, SQRDT43, SQRDZ2, DeltaTSQRDT23
    integer(c_int) :: i, j, err_alloc = 1, step, jout = 1
 
    integer, pointer :: Ne, OUTNz, Nz, Nt
@@ -70,10 +71,14 @@ contains
       C(Nz) = 1.333333333333333*C2*WNzm1*SQRDT; 
       FNz(:) = 0
       FNzm1(:) = 0
-      !CuNz(:) = 0
-      !CuNzm1(:) = 0
       WR(:) = 0
       OldOldCu(:) = 0
+      SQRDT43 = 1.333333333333333*SQRDT
+      C03DeltaT = C0/3.0d0/DeltaT
+      C0SQRDZDeltaT = C0*SQRDZ/DeltaT
+      SQRDZ2 = SQRDZ/2.0d0
+      DeltaTSQRDT23 = 0.666666666666667*DeltaT/SQRDT
+      C023DeltaT=C0*0.666666666666667/DeltaT
 
       call calc_theta0(theta, dthdz, Ne, Delta)
 
@@ -92,38 +97,38 @@ contains
          FNz(step - 1) = Field(Nz)
          FNzm1(step - 1) = Field(Nz - 1)
 
-         OldSigmaNz = -(kpar2(Nz)/6 + C0/3/DeltaT)*FNz(step - 1) &
-                      + (C0/3/DeltaT - kpar2(Nz)/6)*FNz(step - 2) &
+         OldSigmaNz = -(kpar2(Nz)/6.0d0 + C03DeltaT)*FNz(step - 1) &
+                      + (C03DeltaT - kpar2(Nz)/6.0d0)*FNz(step - 2) &
                       + 0.166666666666667*(Cu(Nz) + OldOldCu(Nz)) - OldOldSigmaNz
-         OldSigmaNzm1 = -(kpar2(Nz - 1)/6 + C0/3/DeltaT)*FNzm1(step - 1) &
-                        + (C0/3/DeltaT - kpar2(Nz - 1)/6)*FNzm1(step - 2) &
+         OldSigmaNzm1 = -(kpar2(Nz - 1)/6.0d0 + C03DeltaT)*FNzm1(step - 1) &
+                        + (C03DeltaT - kpar2(Nz - 1)/6.0d0)*FNzm1(step - 2) &
                         + 0.166666666666667*(Cu(Nz - 1) + OldOldCu(Nz - 1)) - OldOldSigmaNzm1
 
          OldOldSigmaNz = OldSigmaNz
          OldOldSigmaNzm1 = OldSigmaNzm1
 
-         WR(step) = DeltaZ*((C0*0.666666666666667/DeltaT - kpar2(Nz)/3.0d0)*FNz(step - 1) &
-                            + (C0/3.0d0/DeltaT - kpar2(Nz - 1)/6.0d0)*FNzm1(step - 1) &
+         WR(step) = DeltaZ*((C023DeltaT - kpar2(Nz)/3.0d0)*FNz(step - 1) &
+                            + (C03DeltaT - kpar2(Nz - 1)/6.0d0)*FNzm1(step - 1) &
                             + 0.166666666666667*(6.0d0*Cu(Nz) - 2.0d0*OldOldCu(Nz) + 3.0d0*Cu(Nz - 1) - OldOldCu(Nz - 1)) &
                             - (2.0d0*OldSigmaNz + OldSigmaNzm1))
 
          if (step == 1) then
-            IR = 0
+            IR = 0.0d0
          elseif (step == 2) then
-            IR = 1.333333333333333*SQRDT*(u(0)*(1 - SQR2D2) + u(1)*(SQR2M2minus25))
+            IR = SQRDT43*(u(0)*(ONEminusSQR2D2) + u(1)*(SQR2M2minus25))
          else
-            IR = 1.333333333333333*SQRDT*(u(0)*((step - 1)**(1.5) - (step - 1.5)*dsqrt(dble(step))) + u(step - 1)*(SQR2M2minus25))
+            IR = SQRDT43*(u(0)*((step - 1.0d0)**(1.5) - (step - 1.5d0)*dsqrt(dble(step))) + u(step - 1)*(SQR2M2minus25))
             do j = 1, step - 2
-               IR = IR + u(j)*((step - j - 1)**(1.5) - 2*(step - j)**(1.5) + (step - j + 1)**(1.5))
+               IR = IR + u(j)*((step - j - 1.0d0)**(1.5) - 2.0d0*(step - j)**(1.5) + (step - j + 1)**(1.5))
             end do
-            IROldPart = 1.333333333333333*SQRDT*u(step - 1)*(SQR2M2minus25)
+            IROldPart = SQRDT43*u(step - 1)*(SQR2M2minus25)
          end if
 
          D(0) = 0
-         D(1:Nz - 1) = DeltaZ**2*(2*Cu(1:Nz - 1) - OldOldCu(1:Nz - 1)) &
-                       + 2*(1 + C0*DeltaZ**2/DeltaT - DeltaZ**2*kpar2(1:Nz - 1)/2)*Field(1:Nz - 1) &
+         D(1:Nz - 1) = SQRDZ*(2.0d0*Cu(1:Nz - 1) - OldOldCu(1:Nz - 1)) &
+                       + 2.0d0*(1.0d0 + C0SQRDZDeltaT - SQRDZ2*kpar2(1:Nz - 1))*Field(1:Nz - 1) &
                        - (Field(0:Nz - 2) + Field(2:Nz))
-         D(Nz) = -C2*(IR + 1.333333333333333*WR(step)*SQRDT + 0.666666666666667*DeltaT*u(step - 1)/SQRDT)
+         D(Nz) = -C2*(IR + SQRDT43*WR(step) + DeltaTSQRDT23*u(step - 1))
 
          call ltridag(C, A, B, D, lField_p)
          call rtridag(C, A, B, D, rField_p)
@@ -133,17 +138,17 @@ contains
 
          Cup(:) = Current(theta, Ne, Ic)
 
-         WR(step) = DeltaZ*((C0*0.666666666666667/DeltaT - kpar2(Nz)/3.0d0)*Field(Nz) &
-                            + (C0/3.0d0/DeltaT - kpar2(Nz - 1)/6.0d0)*Field(Nz - 1) &
+         WR(step) = DeltaZ*((C023DeltaT - kpar2(Nz)/3.0d0)*Field(Nz) &
+                            + (C03DeltaT - kpar2(Nz - 1)/6.0d0)*Field(Nz - 1) &
                             + 0.166666666666667*(2.0d0*Cup(Nz) + 2.0d0*Cu(Nz) + Cup(Nz - 1) + Cu(Nz - 1)) &
                             - (2.0d0*OldSigmaNz + OldSigmaNzm1))
 
-         if (step > 2) IR = IR - IROldPart + 1.333333333333333*SQRDT*u(step - 1)*(SQR2M2minus25)
+         if (step > 2) IR = IR - IROldPart + SQRDT43*u(step - 1)*(SQR2M2minus25)
 
-         D(1:Nz - 1) = DeltaZ**2*(Cup(1:Nz - 1) + Cu(1:Nz - 1)) &
-                       + 2*(1 + C0*DeltaZ**2/DeltaT - DeltaZ**2*kpar2(1:Nz - 1)/2)*Field(1:Nz - 1) &
+         D(1:Nz - 1) = SQRDZ*(Cup(1:Nz - 1) + Cu(1:Nz - 1)) &
+                       + 2.0d0*(1.0d0 + C0SQRDZDeltaT - SQRDZ2*kpar2(1:Nz - 1))*Field(1:Nz - 1) &
                        - (Field(0:Nz - 2) + Field(2:Nz))
-         D(Nz) = -C2*(IR + 1.333333333333333*WR(step)*SQRDT + 0.666666666666667*DeltaT*u(step - 1)/SQRDT)
+         D(Nz) = -C2*(IR + SQRDT43*WR(step) + DeltaTSQRDT23*u(step - 1))
 
          call ltridag(C, A, B, D, lField)
          call rtridag(C, A, B, D, rField)
