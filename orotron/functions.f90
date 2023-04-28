@@ -3,7 +3,7 @@ module functions
    use types
 
    complex(c_double_complex), parameter :: C0 = (0, 1), CR = 0, C2 = 1/cdsqrt(-Im1*pi)
-   real(c_double), parameter :: SQR2 = dsqrt(2.0D0), SQR2M2 = 2.828427124746190, SQR2D2 = 0.707106781186548
+   real(c_double), parameter :: SQR2 = dsqrt(2.0D0), SQR2M2 = 2.828427124746190, SQR2M2minus25 = SQR2M2 - 2.5, SQR2D2 = 0.707106781186548
 
    complex(c_double_complex) WNz, WNzm1, OldOldSigmaNz, OldOldSigmaNzm1, OldSigmaNz, OldSigmaNzm1
    real(c_double) :: DeltaZ, DeltaT, SQRDT, SQRDZ, IR, IROldPart
@@ -16,7 +16,7 @@ module functions
 
    complex(c_double_complex), allocatable :: Field(:), lField(:), rField(:), Field_p(:), lField_p(:), rField_p(:), &
                                              A(:), B(:), C(:), D(:), WR(:), &
-                                             FNz(:), FNzm1(:), CuNz(:), CuNzm1(:), Cu(:), Cup(:)
+                                             FNz(:), FNzm1(:), Cu(:), Cup(:), OldOldCu(:)!, CuNz(:), CuNzm1(:)
    real(c_double), allocatable :: TAxisNew(:), theta(:, :), dthdz(:, :), kpar2(:)
    integer(c_int), allocatable :: IZ(:)
 
@@ -45,7 +45,7 @@ contains
 
       allocate (Field(0:Nz), lField(0:Nz), rField(0:Nz), Field_p(0:Nz), lField_p(0:Nz), rField_p(0:Nz), &
                 A(0:Nz), B(0:Nz - 1), C(1:Nz), D(0:Nz), WR(-1:Nt), &
-                FNz(-1:Nt), FNzm1(-1:Nt), CuNz(-1:Nt), CuNzm1(-1:Nt), theta(0:Nz, Ne), dthdz(0:Nz, Ne), &
+                FNz(-1:Nt), FNzm1(-1:Nt), OldOldCu(0:Nz), theta(0:Nz, Ne), dthdz(0:Nz, Ne), &
                 Cu(0:Nz), Cup(0:Nz), IZ(0:OUTNz), kpar2(0:Nz), stat=err_alloc)
       if (err_alloc /= 0) then
          print *, "allocation error"
@@ -70,14 +70,16 @@ contains
       C(Nz) = 1.333333333333333*C2*WNzm1*SQRDT; 
       FNz(:) = 0
       FNzm1(:) = 0
-      CuNz(:) = 0
-      CuNzm1(:) = 0
+      !CuNz(:) = 0
+      !CuNzm1(:) = 0
       WR(:) = 0
+      OldOldCu(:) = 0
 
       call calc_theta0(theta, dthdz, Ne, Delta)
 
       time_loop: do step = 1, Nt
          !vezde nije step == j
+         !Old -> (step - 1); OldOld -> (step - 2)
 
          call pendulumODE(theta, dthdz, Field, Ne, Nz, DeltaZ)
 
@@ -87,50 +89,45 @@ contains
             OUTCu(:, jout) = Cu(IZ)
          end if
 
-         FNz(step) = Field(Nz)
-         FNzm1(step) = Field(Nz - 1)
-         CuNz(step) = Cu(Nz)
-         CuNzm1(step) = Cu(Nz - 1)
+         FNz(step - 1) = Field(Nz)
+         FNzm1(step - 1) = Field(Nz - 1)
 
-         !OldSigmaNz - eto sigma(j-1), OldOldSigmaNz - eto sigma(j-2)
          OldSigmaNz = -(kpar2(Nz)/6 + C0/3/DeltaT)*FNz(step - 1) &
                       + (C0/3/DeltaT - kpar2(Nz)/6)*FNz(step - 2) &
-                      + 0.166666666666667*(CuNz(step - 1) + CuNz(step - 2)) - OldOldSigmaNz
-         !OldSigmaNzm1 - eto sigmaNzm1(j-1), OldOldSigmaNzm1 - eto sigmaNzm1(j-2)
+                      + 0.166666666666667*(Cu(Nz) + OldOldCu(Nz)) - OldOldSigmaNz
          OldSigmaNzm1 = -(kpar2(Nz - 1)/6 + C0/3/DeltaT)*FNzm1(step - 1) &
                         + (C0/3/DeltaT - kpar2(Nz - 1)/6)*FNzm1(step - 2) &
-                        + 0.166666666666667*(CuNzm1(step - 1) + CuNzm1(step - 2)) - OldOldSigmaNzm1
+                        + 0.166666666666667*(Cu(Nz - 1) + OldOldCu(Nz - 1)) - OldOldSigmaNzm1
 
          OldOldSigmaNz = OldSigmaNz
          OldOldSigmaNzm1 = OldSigmaNzm1
 
          WR(step) = DeltaZ*((C0*0.666666666666667/DeltaT - kpar2(Nz)/3.0d0)*FNz(step - 1) &
                             + (C0/3.0d0/DeltaT - kpar2(Nz - 1)/6.0d0)*FNzm1(step - 1) &
-                     + 0.166666666666667*(6.0d0*CuNz(step - 1) - 2.0d0*CuNz(step - 2) + 3.0d0*CuNzm1(step - 1) - CuNzm1(step - 2)) &
+                            + 0.166666666666667*(6.0d0*Cu(Nz) - 2.0d0*OldOldCu(Nz) + 3.0d0*Cu(Nz - 1) - OldOldCu(Nz - 1)) &
                             - (2.0d0*OldSigmaNz + OldSigmaNzm1))
 
          if (step == 1) then
             IR = 0
          elseif (step == 2) then
-            IR = 1.333333333333333*SQRDT*(u(0)*(1 - SQR2D2) + u(1)*(SQR2M2 - 2.5))
+            IR = 1.333333333333333*SQRDT*(u(0)*(1 - SQR2D2) + u(1)*(SQR2M2minus25))
          else
-            IR = 1.333333333333333*SQRDT*(u(0)*((step - 1)**(1.5) - (step - 1.5)*dsqrt(dble(step))) + u(step - 1)*(SQR2M2 - 2.5))
+            IR = 1.333333333333333*SQRDT*(u(0)*((step - 1)**(1.5) - (step - 1.5)*dsqrt(dble(step))) + u(step - 1)*(SQR2M2minus25))
             do j = 1, step - 2
                IR = IR + u(j)*((step - j - 1)**(1.5) - 2*(step - j)**(1.5) + (step - j + 1)**(1.5))
             end do
-            IROldPart = 1.333333333333333*SQRDT*u(step - 1)*(SQR2M2 - 2.5)
+            IROldPart = 1.333333333333333*SQRDT*u(step - 1)*(SQR2M2minus25)
          end if
 
          D(0) = 0
-         D(1:Nz - 1) = DeltaZ**2*(2*Cu(1:Nz - 1)) &
+         D(1:Nz - 1) = DeltaZ**2*(2*Cu(1:Nz - 1) - OldOldCu(1:Nz - 1)) &
                        + 2*(1 + C0*DeltaZ**2/DeltaT - DeltaZ**2*kpar2(1:Nz - 1)/2)*Field(1:Nz - 1) &
                        - (Field(0:Nz - 2) + Field(2:Nz))
-         D(Nz) = -C2*(IR + 1.333333333333333*WR(step)*SQRDT + &
-                      0.666666666666667*DeltaT*(WNzm1*Field(Nz - 1) + WNz*Field(Nz) + WR(step-1))*cdexp(CR*DeltaT)/SQRDT)
+         D(Nz) = -C2*(IR + 1.333333333333333*WR(step)*SQRDT + 0.666666666666667*DeltaT*u(step - 1)/SQRDT)
 
          call ltridag(C, A, B, D, lField_p)
-         call ltridag(C, A, B, D, rField_p)
-         Field_p = (lField_p + rField_p)/2.0d0
+         call rtridag(C, A, B, D, rField_p)
+         Field_p(:) = (lField_p + rField_p)/2.0d0
 
          call pendulumODE(theta, dthdz, Field_p, Ne, Nz, DeltaZ)
 
@@ -141,16 +138,25 @@ contains
                             + 0.166666666666667*(2.0d0*Cup(Nz) + 2.0d0*Cu(Nz) + Cup(Nz - 1) + Cu(Nz - 1)) &
                             - (2.0d0*OldSigmaNz + OldSigmaNzm1))
 
-         !open (1, file='test.dat', err=101)
-         !do i = 0, Nz
-         !   write (1, '(f17.8,a,\)') ZAxis(i), '   '
-         !   do j = 1, Ne
-         !      write (1, '(F17.8,a,\)', err=103) theta(i, j), '   '
-         !   end do
-         !   write(1,'(/,\)')
-         !end do
-         !close (1)
-         !stop
+         if (step > 2) IR = IR - IROldPart + 1.333333333333333*SQRDT*u(step - 1)*(SQR2M2minus25)
+
+         D(1:Nz - 1) = DeltaZ**2*(Cup(1:Nz - 1) + Cu(1:Nz - 1)) &
+                       + 2*(1 + C0*DeltaZ**2/DeltaT - DeltaZ**2*kpar2(1:Nz - 1)/2)*Field(1:Nz - 1) &
+                       - (Field(0:Nz - 2) + Field(2:Nz))
+         D(Nz) = -C2*(IR + 1.333333333333333*WR(step)*SQRDT + 0.666666666666667*DeltaT*u(step - 1)/SQRDT)
+
+         call ltridag(C, A, B, D, lField)
+         call rtridag(C, A, B, D, rField)
+         Field(:) = (lField + rField)/2.0d0
+
+         OldOldCu(:) = Cu(:)
+
+         open (1, file='test.dat')
+         do i = 0, Nz
+            write (1, '(1p3e17.8)') ZAxis(i), Field(i)
+         end do
+         close (1)
+         stop
 
       end do time_loop
 
